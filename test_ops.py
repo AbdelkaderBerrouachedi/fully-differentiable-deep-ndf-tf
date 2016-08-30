@@ -4,13 +4,14 @@ import tensorflow as tf
 DEPTH = 4  # Depth of a tree (this includes the leaf probabilities)
 N_LEAF = 2 ** (DEPTH - 1)  # Number of leaf nodes
 N_DECISION_NODES = 2 ** (DEPTH - 1) - 1  # These are all nodes but the leaves
-N_BATCH = 128
+N_BATCH = 3
 N_LABELS = 10
 
 rng = np.random.RandomState(1234)
 
 proba = rng.beta(2, 2, N_DECISION_NODES * N_BATCH).reshape(
             N_BATCH, N_DECISION_NODES)
+
 print(proba)
 
 proba_var = tf.placeholder('float32', name='proba', shape=[None, proba.shape[1]])
@@ -29,7 +30,7 @@ def mu_calc():
     batch_size = tf.shape(proba_var)[0]
     n_decision_nodes = proba_var.get_shape().as_list()[-1]
     n_leaves = n_decision_nodes + 1
-    depth = np.float32(np.log2(n_leaves)) + 1  # 1 indexed!
+    tree_depth = np.int64(np.log2(n_leaves) + 1)
 
     # decision probabilities.
     # The first n_batch * n_decision_nodes values are d(i)
@@ -46,15 +47,15 @@ def mu_calc():
         [tf.zeros([1, n_leaves/2]),
          tf.fill([1, n_leaves/2], tf.to_float(n_decision_nodes * batch_size))]
     )
-    batch_complement_indices =  tf.to_int32(tf.tile(batch_complement_row, tf.pack([batch_size, 1])))
+    batch_complement_indices = tf.to_int32(tf.tile(batch_complement_row, tf.pack([batch_size, 1])))
 
     # First row of mu
     mu = tf.gather(flat_decision_p, tf.add(batch_0_indices, batch_complement_indices))
 
-    for d in xrange(2, int(depth)):
+    for d in xrange(2, tree_depth):
         indices = tf.range(2 ** (d - 1), 2 ** d) - 1 # [2, 4]
         tile_indices = tf.reshape(tf.tile(tf.expand_dims(indices, 1),
-                                          [1, int(2 ** (depth - d))]), [1, -1])
+                                          [1, 2 ** (tree_depth - d)]), [1, -1])
         batch_indices = tf.add(batch_0_indices, tf.tile(tile_indices, tf.pack([batch_size, 1])))
 
         batch_complement_row = tf.tile(
@@ -69,17 +70,17 @@ def mu_calc():
         mu = tf.mul(mu, tf.gather(flat_decision_p, tf.add(batch_indices, batch_complement_indices)))
     return mu
 
-def pyx(mu, leaf_p):
-    # p(y|x) = mu * leaf_p, i.e. probability to route to leaf times probability in leaf
-    py_x = tf.reduce_mean(
-        tf.mul(mu, leaf_p), 1)
 
-       tf.mul(tf.tile(tf.expand_dims(mu, 2), [1, 1, N_LABEL]),
-              tf.tile(tf.expand_dims(leaf_p, 0), [N_BATCH, 1, 1])), 1)
-
+def pyx(mu):
+    batch_size = tf.shape(mu)[0]
+    w_l = tf.Variable(tf.random_uniform([N_LEAF, N_LABELS], -2, 2, seed=1))
+    leaf_p = tf.nn.softmax(w_l)
+    return tf.reduce_mean(
+            tf.mul(tf.tile(tf.expand_dims(mu, 2), [1, 1, N_LABELS]),
+                  tf.tile(tf.expand_dims(leaf_p, 0), tf.pack([batch_size, 1, 1]))), 1)
 
 sess = tf.Session()
-data = mu_calc()
+data = pyx(mu_calc())
 
 sess.run(tf.initialize_all_variables())
 result = sess.run(data, feed_dict={proba_var: proba})
