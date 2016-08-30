@@ -21,32 +21,50 @@ def mu():
        1   2
       3 4 5 6
     """
+    # n_nodes = 2 ** depth + 1
     batch_size = tf.shape(proba_var)[0]
     n_nodes = proba_var.get_shape().as_list()[-1]
-    depth = int(np.log2(n_nodes + 1))  # depth does not include final leaves
-    n_leaves = 2 ** depth
+    n_leaves = n_nodes + 1
+    depth = np.float32(np.log2(n_leaves))
+
+    # decision probabilities.
+    # The first n_batch * n_nodes values are d(i)
+    # The second n_batch * n_nodes values are 1-d(i)
     decision_p = tf.pack([proba_var, 1 - proba_var])
+    flat_decision_p = tf.reshape(decision_p, [-1])
 
+    # zeroth index of each routing probability in the mini-batch
+    batch_0_indices = tf.tile(
+        tf.expand_dims(tf.range(0, batch_size * n_nodes, n_nodes), 1),
+        [1, n_leaves])
 
-    flattened_decision_p = tf.reshape(decision_p, [-1])
+    batch_complement_row = tf.concat(1,
+        [tf.zeros([1, n_leaves/2]),
+         tf.fill([1, n_leaves/2], tf.cast(n_nodes * batch_size, tf.float32))]
+    )
+    batch_complement_indices =  tf.cast(tf.tile(batch_complement_row, tf.pack([batch_size, 1])), tf.int32)
 
-    batch_0_indices = tf.tile(tf.expand_dims(tf.range(0, batch_size * n_leaves, n_leaves), 1), [1, n_leaves])
-    # [0, 0, 0, 0], [4, 4, 4, 4], [8, 8, 8, 8]
+    # First row of mu
+    mu = tf.gather(flat_decision_p, tf.add(batch_0_indices, batch_complement_indices))
 
-    #batch_complement_indices = tf.tile(tf.expand_dims(tf.concat(0, [tf.zeros([n_leaves / 2]), tf.ones([n_leaves / 2]) *  n_leaves]), 1), [1, n_leaves])
-    #batch_complement_indices = tf.tile(tf.expand_dims(tf.range(n_nodes, batch_size * 2 * n_nodes,  2 * n_nodes), 1), [1, n_leaves / 2])
-    batch_complement_indices =  tf.tile(tf.concat(0, [tf.zeros([n_leaves/2]), tf.fill([n_leaves/2], tf.cast(batch_size, tf.float32))]), [1, n_leaves])
+    for d in xrange(1, int(depth)):
+        indices = tf.range(2 ** d, 2 ** (d + 1)) - 1 # [1, 2]
+        tile_indices = tf.reshape(tf.tile(tf.expand_dims(indices, 1),
+                                          [1, int(2 ** (depth -1 - d + 1))]), [1, -1])
+        batch_indices = tf.add(batch_0_indices, tf.tile(tile_indices, tf.pack([batch_size, 1])))
 
+        # [1 1 2 2] + [0, 9, 0, 9]
+        batch_complement_row = tf.tile(
+            tf.concat(1,
+                [tf.zeros([1, n_leaves/4]),
+                 tf.fill([1, n_leaves/4], tf.cast(n_nodes * batch_size, tf.float32))]
+            ),
+            [1, n_leaves/2]
+        )
+        batch_complement_indices =  tf.cast(tf.tile(batch_complement_row, tf.pack([batch_size, 1])), tf.int32)
+        mu = tf.mul(mu, tf.gather(flat_decision_p, tf.add(batch_indices, batch_complement_indices)))
 
-    #mu = tf.gather(flattened_decision_p, tf.concat(1, [batch_0_indices, batch_complement_indices]))
-    return batch_complement_indices
-    #for d in xrange(1, int(depth)):
-    #    indices = tf.range(2 ** d, 2 ** (d + 1)) - 1 # [1, 2]
-    #    tile_indices = tf.reshape(tf.tile(tf.expand_dims(indices, 1), [1, 2]), [1, -1])
-    #    batch_indices = tf.tile(tile_indices, tf.pack([batch_size, 1]))
-    #    return tile_indices
-    #    return tf.gather(flattened_decision_p, batch_indices)
-
+        return mu
 
 sess = tf.Session()
 data = mu()
