@@ -1,10 +1,11 @@
 import numpy as np
 import tensorflow as tf
 
-DEPTH = 3  # Depth of a tree (this includes the leaf probabilities)
+DEPTH = 4  # Depth of a tree (this includes the leaf probabilities)
 N_LEAF = 2 ** (DEPTH - 1)  # Number of leaf nodes
 N_DECISION_NODES = 2 ** (DEPTH - 1) - 1  # These are all nodes but the leaves
-N_BATCH = 3
+N_BATCH = 128
+N_LABELS = 10
 
 rng = np.random.RandomState(1234)
 
@@ -14,7 +15,7 @@ print(proba)
 
 proba_var = tf.placeholder('float32', name='proba', shape=[None, proba.shape[1]])
 
-def mu():
+def mu_calc():
     """
     \mu = [d_0, d_0, d_0, d_0, 1-d_0, 1-d_0, 1-d_0, 1-d_0]
     \mu = \mu * [d_1,   d_1, 1-d_1, 1-d_1,   d_2,   d_2, 1-d_2, 1-d_2]
@@ -56,21 +57,29 @@ def mu():
                                           [1, int(2 ** (depth - d))]), [1, -1])
         batch_indices = tf.add(batch_0_indices, tf.tile(tile_indices, tf.pack([batch_size, 1])))
 
-        # [1 1 2 2] + [0, 9, 0, 9]
         batch_complement_row = tf.tile(
             tf.concat(1,
-                [tf.zeros([1, n_leaves/4]),
-                 tf.fill([1, n_leaves/4], tf.to_float(n_decision_nodes * batch_size))]
+                [tf.zeros([1, n_leaves/(2**d)]),
+                 tf.fill([1, n_leaves/(2**d)], tf.to_float(n_decision_nodes * batch_size))]
             ),
-            [1, n_leaves/2]
+            [1, 2 ** (d - 1)]
         )
+
         batch_complement_indices = tf.to_int32(tf.tile(batch_complement_row, tf.pack([batch_size, 1])))
         mu = tf.mul(mu, tf.gather(flat_decision_p, tf.add(batch_indices, batch_complement_indices)))
-        return tf.gather(flat_decision_p, tf.add(batch_indices, batch_complement_indices))
-        return mu
+    return mu
+
+def pyx(mu, leaf_p):
+    # p(y|x) = mu * leaf_p, i.e. probability to route to leaf times probability in leaf
+    py_x = tf.reduce_mean(
+        tf.mul(mu, leaf_p), 1)
+
+       tf.mul(tf.tile(tf.expand_dims(mu, 2), [1, 1, N_LABEL]),
+              tf.tile(tf.expand_dims(leaf_p, 0), [N_BATCH, 1, 1])), 1)
+
 
 sess = tf.Session()
-data = mu()
+data = mu_calc()
 
 sess.run(tf.initialize_all_variables())
 result = sess.run(data, feed_dict={proba_var: proba})
