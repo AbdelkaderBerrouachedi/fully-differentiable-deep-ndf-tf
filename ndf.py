@@ -18,6 +18,17 @@ def _to_tensor(x, dtype):
     return x
 
 
+def random_columns(tensor, n_columns, random_state=1234):
+    rng = np.random.RandomState(random_state)
+    n_features = tensor.get_shape().as_list()[-1]
+    column_indices = rng.choice(np.arange(n_features), n_columns)
+    slices = [tf.slice(tensor, [0, column_idx], [-1, 1])
+                for column_idx in column_indices]
+
+    return tf.concat(1,slices)
+
+
+
 def categorical_crossentropy(output, target, name=None):
     with tf.variable_op_scope([output, target], name, 'categorical_xentropy'):
         output /= tf.reduce_sum(output,
@@ -27,6 +38,15 @@ def categorical_crossentropy(output, target, name=None):
         output = tf.clip_by_value(output, epsilon, 1. - epsilon)
         return - tf.reduce_sum(target * tf.log(output),
                                reduction_indices=len(output.get_shape()) - 1)
+
+
+def normalize(scores, name=None):
+    with tf.variable_op_scope([scores], name, 'normalize_tensor'):
+        scores /= tf.reduce_sum(scores,
+                                reduction_indices=len(scores.get_shape()) - 1,
+                                keep_dims=True)
+        return scores
+
 
 def routing_probability(decision_p, name=None):
     """routing_probability.
@@ -135,11 +155,11 @@ def leaf_probability(routing_proba, leaf_p, name=None):
                 ),
             1)
 
-        return py_x_tree
+        return normalize(py_x_tree)
 
 
 def neural_decision_tree(X, y,
-                         max_depth=3,
+                         max_depth=4,
                          random_state=42,
                          trainable=True,
                          name='neural_decision_tree'):
@@ -153,8 +173,8 @@ def neural_decision_tree(X, y,
                 X,
                 n_layers=1,
                 hidden_units=n_hidden_units,
-                activation='relu',
-                keep_prob=0.5,
+                activation='identity',
+                keep_prob=None,
                 batch_norm=False,
                 random_state=random_state)
 
@@ -171,6 +191,39 @@ def neural_decision_tree(X, y,
         routing_proba = routing_probability(decision_p)
 
         predictions = leaf_probability(routing_proba, leaf_p)
+
+        return predictions
+
+
+def neural_decision_tree_classifier(X, y,
+                                    max_depth=4,
+                                    random_state=42,
+                                    name='neural_decision_tree_classifier'):
+    predictions = neural_decision_tree(X, y,
+                                       max_depth=max_depth,
+                                       random_state=random_state)
+    loss = tf.reduce_sum(categorical_crossentropy(predictions, y))
+    return predictions, loss
+
+
+def neural_decision_forest_classifier(X, y,
+                           n_trees=5,
+                           max_depth=4,
+                           random_state=42,
+                           name='neural_decision_forest'):
+    """Ensemble of neural decision trees trained jointly"""
+    with tf.variable_op_scope([X, y], name, 'neural_decision_forest'):
+        trees = [neural_decision_tree(random_columns(
+                                        X,
+                                        n_columns=2,
+                                        random_state=tree*random_state),
+                                      y,
+                                      max_depth=max_depth,
+                                      random_state=tree * random_state,
+                                      name='dt_{}'.format(tree))
+                 for tree in xrange(n_trees)]
+
+        predictions = tf.reduce_mean(tf.pack(trees), 0)
         loss = tf.reduce_sum(categorical_crossentropy(predictions, y))
 
         return predictions, loss

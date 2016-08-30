@@ -79,8 +79,18 @@ def pyx(mu):
             tf.mul(tf.tile(tf.expand_dims(mu, 2), [1, 1, N_LABELS]),
                   tf.tile(tf.expand_dims(leaf_p, 0), tf.pack([batch_size, 1, 1]))), 1)
 
+
+def random_columns(tensor, n_columns, random_state=1234):
+    rng = np.random.RandomState(random_state)
+    n_features = tensor.get_shape().as_list()[-1]
+
+    column_indices = rng.choice(np.arange(n_features), n_columns)
+    return tf.concat(1,
+            [tf.slice(tensor, [0, column_idx], [-1, 1]) for column_idx in column_indices])
+
+
 sess = tf.Session()
-data = pyx(mu_calc())
+data = random_columns(proba_var, n_columns=2)#pyx(mu_calc())
 
 sess.run(tf.initialize_all_variables())
 result = sess.run(data, feed_dict={proba_var: proba})

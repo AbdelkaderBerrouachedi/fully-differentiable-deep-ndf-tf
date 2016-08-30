@@ -2,6 +2,7 @@ import numpy as np
 import skflow
 from sklearn import datasets
 from sklearn import metrics
+from sklearn.tree import DecisionTreeClassifier
 import tensorflow as tf
 
 import ndf
@@ -62,16 +63,35 @@ class TestNDF(tf.test.TestCase):
             sess.run(tf.initialize_all_variables())
             preds, loss = sess.run(model, feed_dict={X: X_data, y: y_data})
 
-    def test_skflow_model(self):
+    def test_skflow_tree(self):
         iris = datasets.load_iris()
         classifier = skflow.TensorFlowEstimator(
-                ndf.neural_decision_tree,
+                ndf.neural_decision_tree_classifier,
                 n_classes=3,
-                optimizer='Adam',
-                learning_rate=0.001,
+                optimizer='Adagrad',
+                learning_rate=0.1,
                 batch_size=100,
                 verbose=True)
         classifier.fit(iris.data, iris.target, logdir='./model')
         score = metrics.accuracy_score(iris.target, classifier.predict(iris.data))
-        print(classifier.predict_proba(iris.data))
+        print(score)
 
+    def test_skflow_forest(self):
+        iris = datasets.load_iris()
+        classifier = skflow.TensorFlowEstimator(
+                ndf.neural_decision_forest_classifier,
+                n_classes=3,
+                optimizer='Adagrad',
+                learning_rate=0.1,
+                verbose=True)
+        classifier.fit(iris.data, iris.target, logdir='./model')
+        score = metrics.accuracy_score(iris.target, classifier.predict(iris.data))
+        print(score)
+        print(classifier.predict_proba(iris.data[:5, :]))
+
+    def test_dt(self):
+        iris = datasets.load_iris()
+        classifier = DecisionTreeClassifier(max_depth=4)
+        classifier.fit(iris.data, iris.target)
+        score = metrics.accuracy_score(iris.target, classifier.predict(iris.data))
+        print(score)
