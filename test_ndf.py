@@ -95,3 +95,24 @@ class TestNDF(tf.test.TestCase):
         classifier.fit(iris.data, iris.target)
         score = metrics.accuracy_score(iris.target, classifier.predict(iris.data))
         print(score)
+
+    def test_flavour(self):
+        import pandas as pd
+        np.random.seed(123)
+        df = pd.read_csv('./data/flavour_noleak.csv')
+        indices = np.arange(df.shape[0])
+        np.random.shuffle(indices)
+        y = df.pop('signal').values[indices[:1000]]
+        print(y)
+
+        X = df.values[indices[:10000]]
+
+        classifier = skflow.TensorFlowEstimator(
+                ndf.neural_decision_forest_classifier,
+                n_classes=2,
+                optimizer='Adagrad',
+                learning_rate=0.1,
+                verbose=True)
+        classifier.fit(X, y, logdir='./model')
+        score = metrics.accuracy_score(y, classifier.predict(X))
+        print(score)
